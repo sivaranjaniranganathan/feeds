@@ -32,6 +32,7 @@ use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\user\EntityOwnerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Drupal\commerce_product\Entity\Product;
 
 /**
  * Defines a base entity processor.
@@ -135,6 +136,15 @@ abstract class EntityProcessorBase extends ProcessorBase implements EntityProces
     $existing_entity_id = $this->existingEntityId($feed, $item);
     $skip_existing = $this->configuration['update_existing'] == static::SKIP_EXISTING;
 
+    if($feed->getType()->id()=='ae_quantity_importer'){
+      $item_number = $item->get('item');
+      $price_level_a_qty_break_1 = "";
+    }
+    if($feed->getType()->id()=='ae_price_importer'){
+      $item_number = $item->get('item_number');
+      $price_level_a_qty_break_1 = $item->get('price_level_a_qty_break_1');
+    }
+
     // If the entity is an existing entity it must be removed from the clean
     // list.
     if ($existing_entity_id) {
@@ -162,6 +172,17 @@ abstract class EntityProcessorBase extends ProcessorBase implements EntityProces
       return;
     }
 
+    if((($feed->getType()->id() == "ae_quantity_importer")  || ($feed->getType()->id() == "ae_price_importer")) && (empty($item_number))) {
+      $state->skipped++;
+      return;    
+    }
+
+    if(($feed->getType()->id() == "ae_price_importer") && (empty($price_level_a_qty_break_1)))
+    {
+      $state->skipped++;
+      return;
+    }
+
     // Build a new entity.
     if (!$existing_entity_id) {
       $entity = $this->newEntity($feed);
@@ -175,6 +196,17 @@ abstract class EntityProcessorBase extends ProcessorBase implements EntityProces
 
       // Set field values.
       $this->map($feed, $entity, $item);
+
+      if (!$existing_entity_id && $feed->getType()->id() == 'ae_price_importer') {
+        $dimension = [
+          'length' => '0.01',
+          'width' => '0.01',
+          'height' => '0.01',
+          'unit' => 'in',
+        ];
+        $entity->set('dimensions', [$dimension]);
+        $entity->set('field_stock', [0]);
+      }
 
       // Validate the entity.
       $feed->dispatchEntityEvent(FeedsEvents::PROCESS_ENTITY_PREVALIDATE, $entity, $item);
@@ -190,6 +222,22 @@ abstract class EntityProcessorBase extends ProcessorBase implements EntityProces
 
       // And... Save! We made it.
       $this->storageController->save($entity);
+
+      // New entity alter.
+      if (!$existing_entity_id && $feed->getType()->id() == 'ae_price_importer') {
+
+        //Add variation to Product
+        $product = Product::create([
+          'type' => 'weddle_product',
+          'title' => t($entity->getTitle()),
+          'variations' => $entity,
+          'status' => 0,
+          'field_publish' => 0,
+          'path' =>  ['alias' => '/products/' . t(strtoupper(str_replace(".", "-", $entity->getTitle()))) .'/'. t(strtoupper(str_replace(".", "-", $entity->getTitle())))],
+        ]);
+        $product->save();
+
+      }
 
       // Dispatch postsave event.
       $feed->dispatchEntityEvent(FeedsEvents::PROCESS_ENTITY_POSTSAVE, $entity, $item);

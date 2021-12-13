@@ -57,17 +57,31 @@ class CsvParser extends ParserBase {
 
     foreach ($parser as $row) {
       $item = new DynamicItem();
-
+      $loaddata=0;
+      $skiprow=0;
       foreach ($row as $delta => $cell) {
         $key = isset($header[$delta]) ? $header[$delta] : $delta;
         // Pick machine name of source, if one is found.
         if (isset($sources[$key])) {
           $key = $sources[$key];
         }
-        $item->set($key, $cell);
-      }
 
+        $symbols_arr =  array("<",">","Œ","©","�","?","œ");
+
+        if(((($feed->bundle() == "ae_quantity_importer") && ($key=="item"))  || (($feed->bundle() == "ae_price_importer") && ($key=="item_number"))) && ((self::strpos_arr($cell, $symbols_arr, 1)) || (mb_detect_encoding($cell) == ''))){
+        //nothing return
+        $skiprow = 1;
+        }
+        else{
+          if($skiprow==0){
+          $loaddata =1;
+          $item->set($key, $cell);
+          }
+        } 
+      }
+      if($loaddata==1){
       $result->addItem($item);
+      }
     }
 
     // Report progress.
@@ -128,5 +142,18 @@ class CsvParser extends ParserBase {
       'line_limit' => 100,
     ];
   }
+
+  /**
+   * {@inheritdoc}
+   */
+  function strpos_arr($haystack, $needles=array(), $offset=0) {
+    $chr = array();
+    foreach($needles as $needle) {
+            $res = strpos($haystack, $needle, $offset);
+            if ($res !== false) $chr[$needle] = $res;
+    }
+    if(empty($chr)) return false;
+    return min($chr);
+}
 
 }
